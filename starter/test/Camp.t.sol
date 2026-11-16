@@ -14,10 +14,19 @@ contract MockSystem {
     struct Sub { uint256 chainId; address contract_; uint256 topic0; }
     Sub[] public subs;
     uint256 public unsubscribeCount;
+    mapping(address => bool) public active;
     ISystemContract.CallbackConfiguration_V_1_0[] public requests;
 
-    function subscribe(uint256 c, address a, uint256 t0, uint256, uint256, uint256) external { subs.push(Sub(c, a, t0)); }
-    function unsubscribe(uint256, address, uint256, uint256, uint256, uint256) external { unsubscribeCount++; }
+    function subscribe(uint256 c, address a, uint256 t0, uint256, uint256, uint256) external {
+        require(!active[msg.sender], "already subscribed");
+        active[msg.sender] = true;
+        subs.push(Sub(c, a, t0));
+    }
+    function unsubscribe(uint256, address, uint256, uint256, uint256, uint256) external {
+        require(active[msg.sender], "not subscribed");
+        active[msg.sender] = false;
+        unsubscribeCount++;
+    }
     function requestCallbackV_1_0(ISystemContract.CallbackConfiguration_V_1_0 memory cfg) external { requests.push(cfg); }
     function debt(address) external pure returns (uint256) { return 0; }
     function requestCount() external view returns (uint256) { return requests.length; }
@@ -133,6 +142,57 @@ contract CampTest is Test {
         assertEq(system.requestCount(), 2);
         assertEq(system.unsubscribeCount(), 1);
         assertEq(reactive.remaining(), 0);
+    }
+
+    function test_topUpRestoresExhaustedSubscription() public {
+        vm.startPrank(address(system));
+        reactive.react(_log(500, 1));
+        reactive.react(_log(500, 2));
+        vm.stopPrank();
+        assertFalse(system.active(address(reactive)));
+
+        reactive.topUp{ value: 0.5 ether }(1);
+        assertTrue(system.active(address(reactive)));
+        (uint256 c, address a, uint256 t0) = system.subs(1);
+        assertEq(c, ORIGIN_CHAIN); assertEq(a, address(origin)); assertEq(t0, topic0);
+        assertEq(reactive.remaining(), 1);
+
+        vm.prank(address(system));
+        reactive.react(_log(500, 3));
+        assertEq(system.requestCount(), 3);
+        assertEq(system.unsubscribeCount(), 2);
+        assertFalse(system.active(address(reactive)));
+    }
+
+    function test_topUpActiveSubscriptionDoesNotSubscribeAgain() public {
+        reactive.topUp(3);
+        assertTrue(system.active(address(reactive)));
+        assertEq(reactive.remaining(), 3);
+        assertEq(system.unsubscribeCount(), 0);
+    }
+
+    function test_topUpZeroPausesAndCanResume() public {
+        reactive.topUp(0);
+        assertFalse(system.active(address(reactive)));
+        reactive.topUp(0); // already paused: no second unsubscribe
+        assertEq(system.unsubscribeCount(), 1);
+        reactive.topUp(1);
+        assertTrue(system.active(address(reactive)));
+    }
+
+    function test_zeroInitialLimitWaitsForTopUp() public {
+        CampReactive paused = new CampReactive(ORIGIN_CHAIN, address(origin), topic0, DEST_CHAIN, THRESHOLD, 0);
+        assertFalse(system.active(address(paused)));
+        paused.topUp(1);
+        assertTrue(system.active(address(paused)));
+    }
+
+    function test_topUpRejectsNonOwner() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(CampReactive.NotOwner.selector);
+        reactive.topUp(0);
+        assertEq(reactive.remaining(), LIMIT);
+        assertTrue(system.active(address(reactive)));
     }
 
     function test_originEmitsPing() public {
