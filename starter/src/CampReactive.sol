@@ -65,7 +65,9 @@ contract CampReactive is AbstractReactive {
         threshold = threshold_;
         remaining = limit_;
 
-        SYSTEM.subscribe(originChainId_, originContract_, originTopic0_, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
+        if (limit_ > 0) {
+            SYSTEM.subscribe(originChainId_, originContract_, originTopic0_, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
+        }
     }
 
     function setRecipient(address recipient_) external onlyOwner {
@@ -77,9 +79,16 @@ contract CampReactive is AbstractReactive {
         threshold = threshold_;
     }
 
-    /// @notice 充值 + 调整剩余次数（余额耗尽产生欠款后，合约会静默停止）
+    /// @notice 充值 + 调整剩余次数；0 会退订，从 0 增至正数会恢复订阅。
+    /// @dev 订阅恢复不代表欠款已清偿；余额不足仍可能导致系统停止投递。
     function topUp(uint256 limit_) external payable onlyOwner {
+        uint256 previous = remaining;
         remaining = limit_;
+        if (previous == 0 && limit_ > 0) {
+            SYSTEM.subscribe(ORIGIN_CHAIN_ID, ORIGIN_CONTRACT, ORIGIN_TOPIC_0, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
+        } else if (previous > 0 && limit_ == 0) {
+            SYSTEM.unsubscribe(ORIGIN_CHAIN_ID, ORIGIN_CONTRACT, ORIGIN_TOPIC_0, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
+        }
     }
 
     /// @inheritdoc IReactive

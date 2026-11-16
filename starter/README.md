@@ -23,7 +23,7 @@ Lasna CampReactive.react(log)        ②  value >= threshold ? 请求回调 : re
 ```bash
 git clone --recurse-submodules https://github.com/ethpanda-org/reactive-builder-camp && cd reactive-builder-camp/starter
 forge install          # 拉取 forge-std 与 reactive-lib-omni
-forge test -vv         # 8 个测试：订阅、鉴权、阈值、全链路、次数上限
+forge test -vv         # 13 个测试：订阅、鉴权、阈值、全链路、次数上限与订阅恢复
 ```
 
 测试里用 `vm.etch` 把一个 MockSystem 放到 `0x8888…8888`，用 MockProxy 模拟 Callback Proxy 注入 reactive 地址，所以**整条链路在本地就能跑通**；先在这里改逻辑、加断言，再上链。
@@ -81,6 +81,8 @@ Ping 到回调落地约 1 个区块。
 | 目标链换成 Base / Unichain Sepolia | `.env` 的 `DEST_CHAIN_ID`、`CALLBACK_PROXY`、`SEPOLIA_RPC_URL` |
 | 定时触发 | 订阅改成 Cron（见 cheatsheet 第 5 节） |
 
+次数耗尽自动退订后，owner 可调用 `topUp(limit)` 设置新的正数次数并恢复订阅，也可随调用充值。`topUp(0)` 会暂停订阅；初始次数为 0 时不订阅。恢复订阅不保证欠款已清偿，仍需检查余额与 `debt`。
+
 ## 4. 常见报错
 
 | 现象 | 原因 | 处理 |
@@ -101,5 +103,5 @@ Ping 到回调落地约 1 个区块。
 
 ## 状态
 
-- 本地 `forge test`：8/8 通过（Solc 0.8.29，reactive-lib-omni v0.1.0）。
+- 本地 `forge test`：13/13 通过（Solc 0.8.29，reactive-lib-omni v0.1.0）。
 - 链上三步走实测：待完成；完成后此处会贴三笔交易的浏览器链接。
